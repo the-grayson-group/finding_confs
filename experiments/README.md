@@ -4,7 +4,7 @@ The scripts in this folder perform the main experiments on our algorithms for co
 ## Baseline Experiments
 The scripts that are relevant to the experiments performed using the baseline comparison method based on Pipeline-Mix from [CONFPASS](https://doi.org/10.1021/acs.jcim.3c00649) are `benchmark_forcefield.py` and `test_forcefield.py`.
 
-To perform the experiments which tests different thresholds for the stop predictor in the Pipeline-Mix method on the force field-searched "tuning" molecules and then the CREST-searched molecules, run the following:
+To perform the experiments which test different thresholds for the stop predictor in the Pipeline-Mix method on the force field-searched "tuning" molecules and then the CREST-searched molecules, run the following:
 ```
 python benchmark_forcefield.py PATH_TO_FOLDER/molecules/
 python benchmark_forcefield.py PATH_TO_FOLDER/crest_molecules/
