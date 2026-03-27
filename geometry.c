@@ -11,16 +11,13 @@ double square_dist(double *x, size_t len, double *v) {
 	return sqd;
 }
 
-void calculate_inv_dists(double *coords, long *atoms, size_t n_rows, double *output, size_t out_size) {
+void calculate_inv_dists(double *coords, size_t n_rows, double *output,
+size_t out_size) {
 	int o = 0;
 	for (int i = 0; i < n_rows && o < out_size; ++i) {
-		if (atoms[i] != 1) {
-			for (int j = i + 1; j < n_rows && o < out_size; ++j) {
-				if (atoms[j] != 1) {
-					double sq_dist = square_dist(&coords[i*3], 3, &coords[j*3]);
-					output[o++] = 1.0 / sqrt(sq_dist);
-				}
-			}
+		for (int j = i + 1; j < n_rows && o < out_size; ++j) {
+			double sq_dist = square_dist(&coords[i*3], 3, &coords[j*3]);
+			output[o++] = 1.0 / sqrt(sq_dist);
 		}
 	}
 }
@@ -53,69 +50,45 @@ double one_pass_rbf_var(double *vals, int size, double b) {
 	return var;
 }
 
-double rbf_maximise_variance(double *features, size_t n_rows, size_t n_cols, int u, int l) {
+double rbf_maximise_variance(double *features, size_t n_rows, size_t n_cols,
+int u, int l) {
 	int n_dists = (n_rows * (n_rows - 1)) / 2;
 	int n_bands = (int) ((u - l) / 0.01) + 1;
 	double *dists = NULL;
-	double *var_cache = NULL;
 	dists = malloc(n_dists * sizeof(double));
-	var_cache = malloc(n_bands * sizeof(double));
-	if (!dists || !var_cache) goto error;
-	for (int i = 0; i < n_bands; ++i) {
-		var_cache[i] = -1.0;
-	}
+	if (!dists) goto error;
 	int p = 0;
 	for (int i = 1; i < n_rows; ++i) {
 		for (int j = 0; j < i; ++j) {
-			dists[p++] = square_dist(&features[i*n_cols], n_cols, &features[j*n_cols]);
+			dists[p++] = square_dist(&features[i*n_cols], n_cols,
+				&features[j*n_cols]);
 		}
 	}
-	double best_b = 0.0;
 	double b;
 	int lo = 1, hi = n_bands - 2;
 	while (lo <= hi) {
 		int m = lo + (hi - lo) / 2;
 		double var_m, var_left, var_right;
-		if (var_cache[m] >= 0.0) {
-			var_m = var_cache[m];
-		}
-		else {
-			b = pow(10, l + 0.01 * m);
-			var_m = one_pass_rbf_var(dists, n_dists, b);
-			var_cache[m] = var_m;
-		}
-		if (var_cache[m-1] >= 0.0) {
-			var_left = var_cache[m-1];
-		}
-		else {
-			b = pow(10, l + 0.01 * (m - 1));
-			var_left = one_pass_rbf_var(dists, n_dists, b);
-			var_cache[m-1] = var_left;
-		}
+		b = pow(10, l + 0.01 * m);
+		var_m = one_pass_rbf_var(dists, n_dists, b);
+		b = pow(10, l + 0.01 * (m - 1));
+		var_left = one_pass_rbf_var(dists, n_dists, b);
 		if (var_left > var_m) {
 			hi = m - 1;
 			continue;
 		}
-		if (var_cache[m+1] >= 0.0) {
-			var_right = var_cache[m+1];
-		}
-		else {
-			b = pow(10, l + 0.01 * (m + 1));
-			var_right = one_pass_rbf_var(dists, n_dists, b);
-			var_cache[m+1] = var_right;
-		}
+		b = pow(10, l + 0.01 * (m + 1));
+		var_right = one_pass_rbf_var(dists, n_dists, b);
 		if (var_right > var_m) {
 			lo = m + 1;
 		}
 		else {
 			free(dists);
-			free(var_cache);
 			b = pow(10, l + 0.01 * m);	
 			return 1.0 / sqrt(2.0 * b);
 		}
 	}
 	error:
 	free(dists);
-	free(var_cache);
 	return -1.0;
 }
