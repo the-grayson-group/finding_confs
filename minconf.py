@@ -475,6 +475,7 @@ def finish_low_enantiomer():
 		job_data.finished_enant = True
 		job_data.old_scores = job_data.score_values
 		job_data.score_values = list()
+		job_data.last_update_len = 0
 	elif selection.lower() == "d":
 		job_data.finished_enant = True
 
@@ -638,7 +639,7 @@ def view_results():
 			print("Conformer | Energy (Hartree) | Rel. Energy (kcal/mol)")
 			print("-----------------------------------------------------")
 			for index in job_data.seen_indices:
-				print("%9d | %16.7f | %16.4f" % (index + 1, qm_energies[index],
+				print("%9d | %16.6f | %16.4f" % (index + 1, qm_energies[index],
 					HARTREE_TO_KCAL * (qm_energies[index] - min_energy)))
 			print("-----------------------------------------------------")
 		elif selection == ViewOpts.HIST.value:
