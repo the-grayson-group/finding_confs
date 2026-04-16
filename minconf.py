@@ -27,8 +27,7 @@ class OptParams():
 
 class JobData():
 	def __init__(self, features, ff_energies, qm_energies, seen_indices,
-	unseen_indices, kernel_len_scale, init_sampler, archive_filename,
-	enant_indices):
+	unseen_indices, kernel_len_scale, init_sampler, archive_filename):
 		self.features = features
 		self.ff_energies = ff_energies
 		self.qm_energies = qm_energies
@@ -39,10 +38,7 @@ class JobData():
 		self.archive_filename = archive_filename
 		self.opt_params = OptParams()
 		self.score_values = list()
-		self.old_scores = None
 		self.last_update_len = 0
-		self.enant_indices = enant_indices
-		self.finished_enant = False
 
 class ForceFieldSampler():
 	def __init__(self, ff_energies):
@@ -156,39 +152,6 @@ def validate_filename(filename):
 		return False
 	return True
 
-def read_enantiomers_file(enant_filename, n_confs):
-	enant_indices = dict()
-	all_indices = list()
-	with open(enant_filename, "r") as enant_file:
-		i = 0
-		for line in enant_file:
-			if i >= 2:
-				print("ERROR: More than two enantiomer indices lists.")
-				return None
-			line = line.strip().split()
-			if len(line) <= 1:
-				return None
-			enant = line[0]
-			try:
-				indices = [int(value) - 1 for value in line[1:]]
-			except ValueError:
-				return None
-			all_indices.extend(indices)
-			enant_indices[enant] = indices
-			i += 1
-	if len(all_indices) != n_confs:
-		print("ERROR: Mismatching number of indices and number of conformers.")
-		return None
-	all_indices_set = set(all_indices)
-	if len(all_indices_set) != len(all_indices):
-		print("ERROR: Duplicated or missing enantiomer indices.")
-		return None
-	range_set = set(range(n_confs))
-	if all_indices_set != range_set:
-		print("ERROR: Invalid enantiomer indices detected.")
-		return None
-	return enant_indices
-
 def start_new_job():
 	global job_data
 	print("Starting new minimisation.")
@@ -221,19 +184,6 @@ def start_new_job():
 			print("ERROR: Different numbers of conformers and low level"\
 				" energies.")
 			continue
-		enant_filename = input("(Optional) Enter enantiomers file (default:" \
-			" None): ")
-		if enant_filename.lower() == "quit" or enant_filename.lower() == "exit":
-			return
-		elif enant_filename.lower() == "none" or enant_filename == "" or \
-		not validate_filename(enant_filename):
-			print("Not tracking enantiomers.")
-			enant_indices = None
-			break
-		enant_indices = read_enantiomers_file(enant_filename, len(mols))
-		if enant_indices is None:
-			print("ERROR: Reading enantiomer indices failed. Not tracking" \
-				" enantiomers.")
 		break
 	archive_filename = os.path.basename(sdf_filename).replace(".sdf",
 		 ".cnfmin.pkl")
@@ -286,8 +236,7 @@ def start_new_job():
 	unseen_indices = list(range(features.shape[0]))
 	qm_energies = np.zeros_like(ff_energies)
 	job_data = JobData(features, ff_energies, qm_energies, seen_indices,
-		unseen_indices, kernel_len_scale, init_sampler, archive_filename,
-		enant_indices)
+		unseen_indices, kernel_len_scale, init_sampler, archive_filename)
 	print("Data will be saved to the archive file: '%s'." % archive_filename)
 
 def load_prev_job():
@@ -439,46 +388,6 @@ def check_convergence(score_values, opt_params):
 		return True
 	return False
 
-def finish_low_enantiomer():
-	global job_data
-	seen_indices = job_data.seen_indices
-	qm_energies = job_data.qm_energies
-	min_energy_index = seen_indices[np.nanargmin(qm_energies[seen_indices])]
-	for enant_key in job_data.enant_indices.keys():
-		if min_energy_index in job_data.enant_indices[enant_key]:
-			low_enant = enant_key
-		else:
-			high_enant = enant_key
-	print("The indices of the different enantiomers of this (TS?) conformer" \
-		" set are being tracked. Now that the convergence criteria for the" \
-		" overall lowest energy conformer (%s enantiomer) have been met, you" \
-		" have the option to discard the remaining conformers of this" \
-		" enantiomer and refocus the search on only the conformers of the" \
-		" other (%s enantiomer). This will effectively restart the search" \
-		" on the reduced set of %s enantiomer conformers, but will use all" \
-		" of the already measured data for the training data." % \
-		(low_enant, high_enant, high_enant))
-	print("Would you like to remove the conformers of the lower energy (%s)" \
-		" enantiomer and search only the %s enantiomer conformers?" % \
-		(low_enant, high_enant))
-	selection = input("Options:\nY: Discard the low energy enantiomer" \
-		" conformers (this cannot be undone).\n" \
-		"N: (Default) Do not discard, prompt again at the next iteration.\n" \
-		"D: Do not discard, do not ask again (this cannot be undone).\n")
-	if selection.lower() == "y":
-		print("Removing %s enantiomer conformers..." % low_enant)
-		for enant_index in job_data.enant_indices[low_enant]:
-			if enant_index in job_data.unseen_indices:
-				job_data.unseen_indices.remove(enant_index)
-		print("%d conformers of the %s enantiomer remain." % \
-			(len(job_data.unseen_indices), high_enant))
-		job_data.finished_enant = True
-		job_data.old_scores = job_data.score_values
-		job_data.score_values = list()
-		job_data.last_update_len = 0
-	elif selection.lower() == "d":
-		job_data.finished_enant = True
-
 def suggest_next():
 	global job_data
 	print("Suggesting next conformers.")
@@ -517,9 +426,6 @@ def suggest_next():
 		if check_convergence(job_data.score_values, job_data.opt_params):
 			print("HOORAY the convergence criteria have been met!\nIt is"\
 				" possible that the lowest energy conformer has been found.")
-			if job_data.enant_indices is not None and \
-			not job_data.finished_enant:
-				finish_low_enantiomer()
 		selected_indices = acq_func.sample_batch(model, job_data.features,
 			job_data.qm_energies, job_data.seen_indices,
 			job_data.unseen_indices, job_data.opt_params.batch_size)
@@ -577,7 +483,7 @@ def update_data():
 		job_data.qm_energies[conf_index] = conf_energy
 	else:
 		overwrite_input = input("WARNING: Conformer %d has already been"\
-			" calculated with energy %.7f. Do you want to overwrite? (Y/n) " % \
+			" calculated with energy %.6f. Do you want to overwrite? (Y/n) " % \
 			(conf_number, job_data.qm_energies[conf_index]))
 		if overwrite_input == "" or overwrite_input[0].lower() == 'y':
 			if conf_energy < \
@@ -707,19 +613,11 @@ def view_results():
 			plt.show()
 		elif selection == ViewOpts.EI.value:
 			score_values = job_data.score_values
-			old_scores = job_data.old_scores
-			if len(score_values) == 0 and old_scores is None:
+			if len(score_values) == 0:
 				print("WARNING: No acquisition function scores have been"\
 					" recorded.")
 				continue
-			if old_scores is not None:
-				plt.plot(np.arange(len(old_scores)) + 1, old_scores, "o-")
-				old_shift = len(old_scores)
-			else:
-				old_shift = 0
-			if len(score_values) > 0:
-				plt.plot(np.arange(len(score_values)) + old_shift + 1,
-					score_values, "o-")
+			plt.plot(np.arange(len(score_values)) + 1, score_values, "o-")
 			plt.xlabel("Sample Number", fontsize=14)
 			plt.title("Mean EI Scores", fontsize=14)
 			plt.show()

@@ -17,21 +17,18 @@ def run_optimisation(features, dft_energies, init_sampler, batch_size):
 	n_samples, seen_indices, unseen_indices = \
 		init_sampler.get_sample(dft_energies, INIT_SAMPLE_SIZE)
 	score_values = list()
-	last_seen_len = 0
 	last_unseen_len = len(unseen_indices)
 	n_iter = 0
 	while len(unseen_indices) > 0:
 		acq_func.fit_model(model, features, dft_energies, seen_indices)
 		acq_scores = acq_func.get_scores(model, features, unseen_indices)
-		if len(seen_indices) > last_seen_len:
-			score = float(np.mean(acq_scores))
-			if len(score_values) > 0:
-				new_score = SMOOTHING * score + \
-					(1.0 - SMOOTHING) * score_values[-1]
-			else:
-				new_score = score
-			score_values.append(new_score)
-		last_seen_len = len(seen_indices)
+		score = float(np.mean(acq_scores))
+		if len(score_values) > 0:
+			new_score = SMOOTHING * score + \
+				(1.0 - SMOOTHING) * score_values[-1]
+		else:
+			new_score = score
+		score_values.append(new_score)
 		if check_convergence(score_values):
 			break
 		acq_func.sample_batch(model, features, dft_energies, seen_indices,

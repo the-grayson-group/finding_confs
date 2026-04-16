@@ -22,6 +22,8 @@ class BaseAcquisitionFunction():
 		unseen_indices.pop(best_index)
 		if not np.isnan(y[sampled_index]):
 			seen_indices.append(sampled_index)
+			return True
+		return False
 
 class ExpectedImprovement(BaseAcquisitionFunction):
 	def get_scores(self, model, x, unseen_indices):
@@ -51,7 +53,10 @@ class KrigingBelieverEI(ExpectedImprovement, BaseAcquisitionFunction):
 			temp_y[sampled_index] = self.y_mean + self.y_std * \
 				self.preds[best_index]
 			temp_seen.append(sampled_index)
+		n_sampled = 0
 		for sampled_index in sampled_indices:
 			unseen_indices.remove(sampled_index)
 			if not np.isnan(y[sampled_index]):
 				seen_indices.append(sampled_index)
+				n_sampled += 1
+		return n_sampled
