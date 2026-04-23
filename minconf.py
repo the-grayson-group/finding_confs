@@ -143,7 +143,7 @@ def check_ready():
 		return False
 	return True
 
-def validate_filename(filename):
+def validate_read_filename(filename):
 	if not os.path.exists(filename):
 		print("ERROR: File '%s' does not exist." % filename)
 		return False
@@ -163,7 +163,7 @@ def start_new_job():
 		sdf_filename = input("Enter .sdf file of conformers: ")
 		if sdf_filename.lower() == "quit" or sdf_filename.lower() == "exit":
 			return
-		if not validate_filename(sdf_filename):
+		if not validate_read_filename(sdf_filename):
 			continue
 		try:
 			mols = list(Chem.SDMolSupplier(sdf_filename, sanitize=False,
@@ -174,7 +174,7 @@ def start_new_job():
 		ff_filename = input("Enter .npy file of low level conformer energies: ")
 		if ff_filename.lower() == "quit" or ff_filename.lower() == "exit":
 			return
-		if not validate_filename(ff_filename):
+		if not validate_read_filename(ff_filename):
 			continue
 		try:
 			ff_energies = np.load(ff_filename)
@@ -191,7 +191,7 @@ def start_new_job():
 		print("ERROR: Cannot write file '%s' to current working directory -"\
 			" permission denied." % archive_filename)
 		return
-	if not validate_filename("./libgeometry.so"):
+	if not validate_read_filename("./libgeometry.so"):
 		return
 	lib = ctypes.CDLL("./libgeometry.so")
 	lib.rbf_maximise_variance.restype = ctypes.c_double
@@ -239,6 +239,21 @@ def start_new_job():
 		unseen_indices, kernel_len_scale, init_sampler, archive_filename)
 	print("Data will be saved to the archive file: '%s'." % archive_filename)
 
+def check_valid_job_data(loaded_object):
+	if not isinstance(loaded_object, JobData):
+		return False
+	attr_names = ("features", "ff_energies", "qm_energies", "seen_indices",
+		"unseen_indices", "kernel_len_scale", "init_sampler",
+		"archive_filename", "opt_params", "score_values", "last_update_len")
+	attr_types = (np.ndarray, np.ndarray, np.ndarray, list, list, float,
+		ForceFieldSampler, str, OptParams, list, int)
+	for attr_name, attr_type in zip(attr_names, attr_types):
+		if not hasattr(loaded_object, attr_name):
+			return False
+		if not isinstance(getattr(loaded_object, attr_name), attr_type):
+			return False
+	return True
+
 def load_prev_job():
 	global job_data
 	print("Loading previous minimisation.")
@@ -252,15 +267,20 @@ def load_prev_job():
 		if input_archive_name.lower() == "quit" or \
 		input_archive_name.lower() == "exit":
 			return
-		if not validate_filename(input_archive_name):
+		if not validate_read_filename(input_archive_name):
 			continue
 		try:
 			archive_file = open(input_archive_name, "rb")
-			job_data = pickle.load(archive_file)
+			loaded_object = pickle.load(archive_file)
 		except:
 			print("ERROR: Could not read data from '%s'." % input_archive_name)
 			continue
+		if not check_valid_job_data(loaded_object):
+			print("ERROR: File '%s' did not contain a valid JobData object." % \
+				input_archive_name)
+			continue
 		break
+	job_data = loaded_object
 
 def select_config_option():
 	global job_data
@@ -624,14 +644,20 @@ def view_results():
 		elif selection == ViewOpts.EXIT.value:
 			return
 
+def validate_write_filename(filename):
+	if not os.access(filename, os.W_OK):
+		print("ERROR: Cannot access file '%s' - permission denied." % filename)
+		return False
+	return True
+
 def save_data():
 	global job_data
-	if check_ready():
+	if not check_ready():
+		print("No data has been created or loaded. Not saving.")
+	elif validate_write_filename(job_data.archive_filename):
 		print("Saving data to archive '%s'..." % job_data.archive_filename)
 		archive_file = open(job_data.archive_filename, "wb")
 		pickle.dump(job_data, archive_file)
-	else:
-		print("No data has been created or loaded. Not saving.")
 
 def select_main_option():
 	option_text = "\nSelect option (type quit/exit to exit the program):\n"\
