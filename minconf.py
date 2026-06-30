@@ -645,8 +645,10 @@ def view_results():
 			return
 
 def validate_write_filename(filename):
-	if not os.access(filename, os.W_OK):
-		print("ERROR: Cannot access file '%s' - permission denied." % filename)
+	directory = os.path.dirname(filename)
+	directory = os.getcwd() if directory == "" else directory
+	if not os.access(directory, os.W_OK):
+		print("ERROR: File '%s' could not be written to." % filename)
 		return False
 	return True
 
