@@ -32,6 +32,7 @@ To perform the experiments in which the Bayesian optimization settings (features
 python benchmark_bayesian.py PATH_TO_FOLDER/molecules/
 python benchmark_bayesian.py PATH_TO_FOLDER/crest_molecules/
 ```
+Note that for the CREST molecules the SMOOTHING and GRAD_THRESH values must be changed to 0.9 and 0.001 respectively.
 
 To perform the experiments in which different values for the the Bayesian optimization convergence criteria (smoothing parameter, score and gradient thresholds) are tested on the force field-searched "tuning" molecules, run the following:
 ```
