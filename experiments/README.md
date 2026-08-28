@@ -33,7 +33,7 @@ python benchmark_bayesian.py PATH_TO_FOLDER/molecules/
 python benchmark_bayesian.py PATH_TO_FOLDER/crest_molecules/
 ```
 
-To perform the experiments in which different values for the the Bayesian optimization convergence criteria (smoothing parameter, score and gradient thresholds) are tested on the force field-search "tuning" molecules, run the following:
+To perform the experiments in which different values for the the Bayesian optimization convergence criteria (smoothing parameter, score and gradient thresholds) are tested on the force field-searched "tuning" molecules, run the following:
 ```
 python benchmark_stop_params.py PATH_TO_FOLDER/molecules/
 ```
