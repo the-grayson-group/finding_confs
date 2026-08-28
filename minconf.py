@@ -21,8 +21,8 @@ N_CONV_POINTS = 3
 class OptParams():
 	def __init__(self):
 		self.min_thresh = 0.01
-		self.grad_thresh = 0.0001
-		self.smoothing = 0.5
+		self.grad_thresh = 0.001
+		self.smoothing = 0.9
 		self.batch_size = 1
 
 class JobData():
@@ -291,9 +291,9 @@ def select_config_option():
 	batch_size = opt_params.batch_size
 	option_text = "\nSelect option (type quit/exit to go to previous menu):\n"\
 		"1. Set minimum EI proportion. Currently: %f, default: 0.01\n"\
-		"2. Set EI gradient threshold. Currently: %f, default: 0.0001\n"\
+		"2. Set EI gradient threshold. Currently: %f, default: 0.001\n"\
 		"3. Set batch size. Currently: %d, default: 1\n"\
-		"4. Set smoothing parameter. Currently: %f, default: 0.5\n"\
+		"4. Set smoothing parameter. Currently: %f, default: 0.9\n"\
 		"5. Reset to defaults.\n"\
 		"6. Return to previous menu.\n" % (min_thresh, grad_thresh, batch_size,
 		smoothing)
@@ -342,7 +342,7 @@ def configure_parameters():
 		elif selection == ConfigOpts.GRAD.value:
 			print("This sets the value below which the gradient of the mean EI"\
 				" curve must be for convergence to be considered (default"\
-				" 10^-4).")
+				" 1e-3).")
 			new_grad_thresh = input("Enter new value: ")
 			try:
 				new_grad_thresh = float(new_grad_thresh)
@@ -357,7 +357,7 @@ def configure_parameters():
 		elif selection == ConfigOpts.SMOOTH.value:
 			print("This sets the exponential smoothing parameter which"\
 				" controls the extend to which previous values of the mean EI"\
-				" values influence the current one (default 0.5).\n"\
+				" values influence the current one (default 0.9).\n"\
 				"It is not recommended to change this value after beginning"\
 				" an optimization job.")
 			new_smoothing = input("Enter new value: ")

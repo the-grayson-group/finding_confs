@@ -13,6 +13,8 @@ process_dihedral_angles)
 from stop_predictor import calculate_opt_features
 from conversions import HARTREE_TO_KCAL, HARTREE_TO_JOULES
 
+TEMPERATURE = 298.15
+
 def get_extra_atoms(extra_atoms_file):
 	"""
 	Read in a file containing (1-indexed) atom indices that give any additional
@@ -98,11 +100,13 @@ stop_predictor, confidence):
 	n_samples = 0
 	stop_predictions = list()
 	n_points = 3
+	sampled_energies = list()
 	for i, conf_idx in enumerate(priority_list):
 		n_samples += 1
 		curr_energy = dft_energies[conf_idx]
 		if np.isnan(curr_energy):
 			continue
+		sampled_energies.append(curr_energy)
 		# Calculate chi_new value for the current iteration
 		if check_duplicated_conf(dft_structures, dft_energies, conf_idx,
 		priority_list[:i]):
@@ -122,7 +126,21 @@ stop_predictor, confidence):
 	print("Proportion = %.3f" % (n_samples / len(priority_list)))
 	target_energy = np.nanmin(dft_energies)
 	min_energy = HARTREE_TO_KCAL * (min_energy - target_energy)
-	print("MinEnergy = %.5f" % min_energy)
+	print("Min.Energy = %.5f" % min_energy)
+	all_energies = dft_energies[~np.isnan(dft_energies)]
+	all_energies -= np.min(all_energies)
+	sampled_energies -= np.min(sampled_energies)
+	all_factors = np.exp(-(HARTREE_TO_JOULES * all_energies) \
+		/ (R * TEMPERATURE))
+	sampled_factors = np.exp(-(HARTREE_TO_JOULES * sampled_energies) \
+		/ (R * TEMPERATURE))
+	all_energies *= HARTREE_TO_KCAL
+	sampled_energies *= HARTREE_TO_KCAL
+	all_boltz = np.sum(all_energies * all_factors) / np.sum(all_factors)
+	sampled_boltz = np.sum(sampled_energies * sampled_factors) \
+		/ np.sum(sampled_factors)
+	boltz_dev = np.abs(all_boltz - sampled_boltz)
+	print("Boltz.Dev. = %.5f" % boltz_dev)
 
 def pipeline_mix_optimise(ff_sdf_files, dft_sdf_files, ff_energy_files,
 dft_energy_files, stop_predictor, confidence=0.9):
@@ -181,4 +199,4 @@ if __name__ == "__main__":
 	stop_predictor_file = open(stop_predictor_filename, "rb")
 	stop_predictor = pickle.load(stop_predictor_file)
 	pipeline_mix_optimise(ff_sdf_files, dft_sdf_files, ff_energy_files,
-		dft_energy_files, stop_predictor, confidence=0.8)
+		dft_energy_files, stop_predictor, confidence=0.9)

@@ -92,7 +92,7 @@ def setup_model_unsupervised_bandwidth(features):
 		normalize_y=True)
 	return model
 
-def check_convergence(acq_values, min_thresh=0.01, grad_thresh=0.0001):
+def check_convergence(acq_values, min_thresh=0.01, grad_thresh=0.001):
 	"""
 	Check for convergence in the acquisition function values of the Bayesian
 	optimisation. Returns true if the acqusition function value has consistently

@@ -12,6 +12,8 @@ process_dihedral_angles)
 from stop_predictor import calculate_opt_features, evaluate_stop_predictions
 from conversions import HARTREE_TO_KCAL, HARTREE_TO_JOULES
 
+TEMPERATURE = 298.15
+
 def check_duplicated_conf(dft_structures, dft_energies, conf_idx, opt_indices):
 	"""
 	Check if a DFT-optimised conformer is a duplicated of another that is
@@ -69,17 +71,20 @@ def forcefield_optimise_data(priority_list, dft_energies, dft_structures):
 			conformer has been optimised
 		min_energies: list of floats of the minimum energy at each sampling
 			iteration
+		sampled_energies: list of floats of the conformer energies at each
+			iteration
 	"""
 	opt_features = list()
 	stop_labels = list()
 	min_energies = list()
+	sampled_energies = list()
 	chi_new_values = list()
 	target_energy = np.nanmin(dft_energies)
 	min_energy = float("inf")
-	temperature = 298.15
 	n_confs = len(priority_list)
 	for i, conf_idx in enumerate(priority_list):
 		curr_energy = dft_energies[conf_idx]
+		sampled_energies.append(curr_energy)
 		if np.isnan(curr_energy) and len(min_energies) > 0:
 			min_energies.append(min_energies[-1])
 			continue
@@ -91,20 +96,20 @@ def forcefield_optimise_data(priority_list, dft_energies, dft_structures):
 			chi_new = 0.0
 		else:
 			delta_g = HARTREE_TO_JOULES * (curr_energy - min_energy)
-			chi_new = np.exp(-delta_g / (R * temperature))
+			chi_new = np.exp(-delta_g / (R * TEMPERATURE))
 		chi_new_values.append(chi_new)
 		curr_features = calculate_opt_features(chi_new_values, n_confs)
 		opt_features.append(curr_features)
 		stop_labels.append(int(min_energy == target_energy))
 	assert(len(min_energies) == n_confs)
-	return opt_features, stop_labels, min_energies
+	return opt_features, stop_labels, min_energies, sampled_energies
 
 def pipeline_mix_opt_data_all(ff_sdf_files, dft_sdf_files, ff_energy_files,
 dft_energy_files):
 	"""
 	For all the molecules provided in a list of files, run the conformer
 	energy optimisation with the pipeline-mix method and compile a list of the
-	features, stop labels and minimum energies at each iteration.
+	features, stop labels and energies at each iteration.
 
 	Args:
 		ff_sdf_files: list of strings of the force field-optimised structure
@@ -123,13 +128,15 @@ dft_energy_files):
 			each iteration
 		min_energies_all: list of lists of floats of the minimum energy found so
 			far at each sampling iteration for each molecule
+		sampled_energies_all: list of lists of floats of the energies of each
+			conformer at each sampling iteration for each molecule
 	"""	
 	opt_features_all = list()
 	stop_labels_all = list()
 	min_energies_all = list()
+	sampled_energies_all = list()
 	for ff_sdf_file, dft_sdf_file, ff_energy_file, dft_energy_file in \
 	zip(ff_sdf_files, dft_sdf_files, ff_energy_files, dft_energy_files):
-		print("Optimising %s..." % ff_sdf_file.replace(".sdf", ""))
 		ff_energies = np.load(ff_energy_file)
 		dft_energies = np.load(dft_energy_file)
 		ff_structures = get_structures(ff_sdf_file, ff_energies)
@@ -138,15 +145,18 @@ dft_energy_files):
 		dihedral_angles = filter_dihedral_angles(dihedral_angles)
 		dihedral_angles = process_dihedral_angles(dihedral_angles)
 		priority_list = pipeline_mix_priority_list(dihedral_angles, ff_energies)
-		opt_features, stop_labels, min_energies = forcefield_optimise_data(
-			priority_list, dft_energies, dft_structures)
+		opt_features, stop_labels, min_energies, sampled_energies = \
+			forcefield_optimise_data(priority_list, dft_energies,
+			dft_structures)
 		opt_features_all.append(opt_features)
 		stop_labels_all.append(stop_labels)
 		min_energies_all.append(min_energies)
-	return opt_features_all, stop_labels_all, min_energies_all
+		sampled_energies_all.append(sampled_energies)
+	return opt_features_all, stop_labels_all, min_energies_all, \
+		sampled_energies_all
 
 def cross_validate_performance(opt_features_all, stop_labels_all,
-min_energies_all, mol_names, n_fold=5, confidence=0.9):
+min_energies_all, sampled_energies_all, mol_names, n_fold=5, confidence=0.9):
 	"""
 	Cross validates the performance of the pipeline-mix conformer optimisation
 	method when stopping determination is performed using a machine learning
@@ -161,6 +171,8 @@ min_energies_all, mol_names, n_fold=5, confidence=0.9):
 			iteration
 		min_energies_all: list of lists of floats of the minimum energy found so
 			far at each sampling iteration for each molecule
+		sampled_energies_all: list of lists of floats of the energies of each
+			conformer at each sampling iteration for each molecule
 		mol_names: list of str of the names of each molecule in the benchmark
 		n_fold: int giving the number of cross-validation folds to be performed
 		confidence: float giving the confidence level above which model
@@ -170,6 +182,7 @@ min_energies_all, mol_names, n_fold=5, confidence=0.9):
 	proportions_sampled = list()
 	total_false_stops = 0
 	excess_energies = list()
+	boltz_devs_all = list()
 	n_mol = len(opt_features_all)
 	n_fold_mol = n_mol // n_fold
 	test_start = 0
@@ -189,6 +202,7 @@ min_energies_all, mol_names, n_fold=5, confidence=0.9):
 		test_features = list()
 		test_labels = list()
 		test_min_energies = list()
+		test_sampled_energies = list()
 		for i, idx in enumerate(train_indices):
 			train_features.extend(opt_features_all[idx])
 			train_labels.extend(stop_labels_all[idx])
@@ -196,6 +210,7 @@ min_energies_all, mol_names, n_fold=5, confidence=0.9):
 			test_features.extend(opt_features_all[idx])
 			test_labels.extend(stop_labels_all[idx])
 			test_min_energies.append(min_energies_all[idx])
+			test_sampled_energies.append(sampled_energies_all[idx])
 		train_features = np.array(train_features)
 		train_labels = np.array(train_labels)
 		test_features = np.array(test_features)
@@ -207,24 +222,57 @@ min_energies_all, mol_names, n_fold=5, confidence=0.9):
 		proportions_sampled.extend(proportions)
 		total_false_stops += false_stops
 		excess_energies.extend([excess for excess in excesses if excess > 0.0])
+		boltz_devs = list()
+		for n_samples, sampled_energies in zip(samples, test_sampled_energies):
+			sampled_energies = np.array(sampled_energies)
+			measured_energies = sampled_energies[:n_samples]
+			sampled_energies = sampled_energies[~np.isnan(sampled_energies)]
+			measured_energies = measured_energies[~np.isnan(measured_energies)]
+			sampled_energies -= np.min(sampled_energies)
+			measured_energies -= np.min(measured_energies)
+			sampled_factors = np.exp(-(HARTREE_TO_JOULES * sampled_energies) \
+				/ (R * TEMPERATURE))
+			measured_factors = np.exp(-(HARTREE_TO_JOULES * measured_energies) \
+				/ (R * TEMPERATURE))
+			sampled_energies *= HARTREE_TO_KCAL
+			measured_energies *= HARTREE_TO_KCAL
+			sampled_boltz = np.sum(sampled_energies * sampled_factors) \
+				/ np.sum(sampled_factors)
+			measured_boltz = np.sum(measured_energies * measured_factors) \
+				/ np.sum(measured_factors)
+			boltz_devs.append(np.abs(measured_boltz - sampled_boltz))
+		boltz_devs_all.extend(boltz_devs)
 		for i, test_index in enumerate(test_indices):
 			mol_name = mol_names[test_index]
 			print("#", mol_name)
 			print("Samples = %d" % samples[i])
 			print("Proportion = %.3f" % proportions[i])
-			print("MinEnergy = %.5f" % excesses[i])
+			print("Min.Energy = %.5f" % excesses[i])
+			print("Boltz.Dev. = %.5f" % boltz_devs[i])
 	print("TotalSamples = %d" % sum(total_samples))
 	print("MeanSamples = %.3f" % np.mean(total_samples))
-	print("MaxSamples = %d" % max(total_samples))
+	print("MedianSamples = %.3f" % np.median(total_samples))
+	print("Std.Samples = %.3f" % np.std(total_samples))
+	print("Max.Samples = %d" % max(total_samples))
 	print("MeanProportion = %.4f" % np.mean(proportions_sampled))
-	print("MaxProportion = %.4f" % max(proportions_sampled))
+	print("MedianProportion = %.4f" % np.median(proportions_sampled))
+	print("Std.Proportion = %.4f" % np.std(proportions_sampled))
+	print("Max.Proportion = %.4f" % max(proportions_sampled))
 	print("FalseStops = %d" % total_false_stops)
 	if len(excess_energies) > 0:
 		print("MeanExcessEnergy = %.4f" % np.mean(excess_energies))
-		print("MaxExcessEnergy = %.4f" % max(excess_energies))
+		print("MedianExcessEnergy = %.4f" % np.median(excess_energies))
+		print("Std.ExcessEnergy = %.4f" % np.std(excess_energies))
+		print("Max.ExcessEnergy = %.4f" % max(excess_energies))
 	else:
 		print("MeanExcessEnergy = 0.0000")
-		print("MaxExcessEnergy = 0.0000")
+		print("MedianExcessEnergy = 0.0000")
+		print("Std.ExcessEnergy = 0.0000")
+		print("Max.ExcessEnergy = 0.0000")
+	print("MeanBoltz.Dev. = %.4f" % np.mean(boltz_devs_all))
+	print("MedianBoltz.Dev. = %.4f" % np.median(boltz_devs_all))
+	print("Std.Boltz.Dev. = %.4f" % np.std(boltz_devs_all))
+	print("Max.Boltz.Dev. = %.4f" % max(boltz_devs_all))
 
 
 if __name__ == "__main__":
@@ -233,12 +281,13 @@ if __name__ == "__main__":
 		exit(1)
 	ff_sdf_files, dft_sdf_files, ff_energy_files, dft_energy_files = \
 		get_conformers_filenames()
-	opt_features_all, stop_labels_all, min_energies_all = \
-		pipeline_mix_opt_data_all(ff_sdf_files, dft_sdf_files, ff_energy_files,
-		dft_energy_files)
+	opt_features_all, stop_labels_all, min_energies_all, \
+	sampled_energies_all = pipeline_mix_opt_data_all(ff_sdf_files,
+		dft_sdf_files, ff_energy_files, dft_energy_files)
 	mol_names = [filename.replace(".sdf", "") for filename in ff_sdf_files]
 	for confidence in (0.6, 0.7, 0.8, 0.9):
 		random.seed(5)
 		print("# %d%%" % int(100 * confidence))
 		cross_validate_performance(opt_features_all, stop_labels_all,
-			min_energies_all, mol_names, n_fold=5, confidence=confidence)
+			min_energies_all, sampled_energies_all, mol_names, n_fold=5,
+			confidence=confidence)

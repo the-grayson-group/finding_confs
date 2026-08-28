@@ -1,15 +1,17 @@
 import sys
 import numpy as np
+from scipy.constants import R
 from file_utils import get_conformers_filenames, get_structures
 from acquisition_functions import KrigingBelieverEI
 from bayesian_utils import (get_interatomic_features, check_convergence,
 setup_model_unsupervised_bandwidth)
 from initial_samplers import ForceFieldSampler
-from conversions import HARTREE_TO_KCAL
+from conversions import HARTREE_TO_KCAL, HARTREE_TO_JOULES
 
 INIT_SAMPLE_SIZE = 5
-SMOOTHING = 0.5
+SMOOTHING = 0.9
 BATCH_SIZE = 5
+TEMPERATURE = 298.15
 
 def run_optimisation(features, dft_energies, init_sampler, batch_size):
 	model = setup_model_unsupervised_bandwidth(features)
@@ -44,7 +46,22 @@ def run_optimisation(features, dft_energies, init_sampler, batch_size):
 	target_energy = np.nanmin(dft_energies)
 	min_energy = np.min(dft_energies[seen_indices])
 	min_energy = HARTREE_TO_KCAL * (min_energy - target_energy)
-	print("MinEnergy = %.5f" % min_energy)
+	print("Min.Energy = %.5f" % min_energy)
+	all_energies = dft_energies[~np.isnan(dft_energies)]
+	sampled_energies = dft_energies[seen_indices]
+	all_energies -= np.min(all_energies)
+	sampled_energies -= np.min(sampled_energies)
+	all_factors = np.exp(-(HARTREE_TO_JOULES * all_energies) \
+		/ (R * TEMPERATURE))
+	sampled_factors = np.exp(-(HARTREE_TO_JOULES * sampled_energies) \
+		/ (R * TEMPERATURE))
+	all_energies *= HARTREE_TO_KCAL
+	sampled_energies *= HARTREE_TO_KCAL
+	all_boltz = np.sum(all_energies * all_factors) / np.sum(all_factors)
+	sampled_boltz = np.sum(sampled_energies * sampled_factors) \
+		/ np.sum(sampled_factors)
+	boltz_dev = np.abs(all_boltz - sampled_boltz)
+	print("Boltz.Dev. = %.5f" % boltz_dev)
 
 def run_experiment(ff_sdf_files, ff_energy_files, dft_energy_files, batch_size):
 	for ff_sdf_file, ff_energy_file, dft_energy_file in zip(ff_sdf_files,

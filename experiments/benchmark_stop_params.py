@@ -2,23 +2,27 @@ import sys
 import numpy as np
 from scipy.constants import R
 from file_utils import get_conformers_filenames, get_structures
-from acquisition_functions import KrigingBelieverEI
+from acquisition_functions import ExpectedImprovement
 from bayesian_utils import (get_interatomic_features, check_convergence,
-setup_model_unsupervised_bandwidth)
-from initial_samplers import ForceFieldSampler
+setup_model_unsupervised_bandwidth, FFTreat, FeatureTreat)
+from initial_samplers import (ForceFieldSampler, ForceFieldSpreadSampler,
+ClusterSampler)
+from dihedral_angles import (get_dihedral_angles, filter_dihedral_angles,
+process_dihedral_angles)
 from conversions import HARTREE_TO_KCAL, HARTREE_TO_JOULES
 
 INIT_SAMPLE_SIZE = 5
-SMOOTHING = 0.9
+SMOOTHING = 0.5
+MIN_THRESH = 0.01
+GRAD_THRESH = 0.0001
 TEMPERATURE = 298.15
 
-def run_optimisation(features, dft_energies, init_sampler, batch_size):
+def run_optimisation(features, dft_energies, init_sampler):
 	model = setup_model_unsupervised_bandwidth(features)
-	acq_func = KrigingBelieverEI()
+	acq_func = ExpectedImprovement()
 	n_samples, seen_indices, unseen_indices = \
 		init_sampler.get_sample(dft_energies, INIT_SAMPLE_SIZE)
 	score_values = list()
-	n_iter = 0
 	while len(unseen_indices) > 0:
 		acq_func.fit_model(model, features, dft_energies, seen_indices)
 		acq_scores = acq_func.get_scores(model, features, unseen_indices)
@@ -29,13 +33,10 @@ def run_optimisation(features, dft_energies, init_sampler, batch_size):
 		else:
 			new_score = score
 		score_values.append(new_score)
-		if check_convergence(score_values):
+		if check_convergence(score_values, MIN_THRESH, GRAD_THRESH):
 			break
-		acq_func.sample_batch(model, features, dft_energies, seen_indices,
-			unseen_indices, batch_size)
-		n_iter += 1
-		if len(unseen_indices) == 0:
-			break
+		acq_func.process_sample(acq_scores, dft_energies, seen_indices,
+			unseen_indices)
 	n_samples = features.shape[0] - len(unseen_indices)
 	min_energy = np.min(dft_energies[seen_indices])
 	min_energy = HARTREE_TO_KCAL * (min_energy - np.nanmin(dft_energies))
@@ -53,11 +54,11 @@ def run_optimisation(features, dft_energies, init_sampler, batch_size):
 	sampled_boltz = np.sum(sampled_energies * sampled_factors) \
 		/ np.sum(sampled_factors)
 	boltz_dev = np.abs(all_boltz - sampled_boltz)
-	return n_samples, n_iter, min_energy, boltz_dev
+	return n_samples, min_energy, boltz_dev
 
-def run_experiment(ff_sdf_files, ff_energy_files, dft_energy_files, batch_size):
+def run_experiment(experiment, ff_sdf_files, ff_energy_files, dft_energy_files):
+	feature_treat, initial_sampler, ff_treat = experiment
 	total_samples = list()
-	total_iters = list()
 	proportions = list()
 	false_stops = 0
 	excess_energies = list()
@@ -67,28 +68,36 @@ def run_experiment(ff_sdf_files, ff_energy_files, dft_energy_files, batch_size):
 		ff_energies = np.load(ff_energy_file)
 		dft_energies = np.load(dft_energy_file)
 		structures = get_structures(ff_sdf_file, ff_energies)
-		features = get_interatomic_features(structures)
-		init_sampler = ForceFieldSampler(ff_energies)
-		n_samples, n_iter, excess_energy, boltz_dev = run_optimisation(features,
-			dft_energies, init_sampler, batch_size)
+		if feature_treat == FeatureTreat.ANGLES:
+			features = get_dihedral_angles(structures)
+			features = filter_dihedral_angles(features)
+			features = process_dihedral_angles(features)
+			if ff_treat == FFTreat.INCLUDE:
+				features = np.concatenate((features,
+					ff_energies.reshape(-1, 1)), axis=1)
+			features = features.copy().reshape(features.shape, order="C")
+		elif feature_treat == FeatureTreat.DISTS:
+			features = get_interatomic_features(structures, ff_energies,
+				ff_treat)
+		if "Cluster" in repr(initial_sampler):
+			init_sampler = initial_sampler(features)
+		else:
+			init_sampler = initial_sampler(ff_energies)
+		n_samples, excess_energy, boltz_dev = run_optimisation(features,
+			dft_energies, init_sampler)
 		total_samples.append(n_samples)
-		total_iters.append(n_iter)
 		proportions.append(n_samples / features.shape[0])
 		false_stops += int(excess_energy != 0.0)
 		if excess_energy > 0.0:
 			excess_energies.append(excess_energy)
 		boltz_devs.append(boltz_dev)
-	print("# %d" % batch_size)
+	print("# %s %s %s %f %f %f" % (feature_treat.name, init_sampler.name,
+		ff_treat.name, SMOOTHING, MIN_THRESH, GRAD_THRESH))
 	print("TotalSamples = %d" % sum(total_samples))
 	print("MeanSamples = %.3f" % np.mean(total_samples))
 	print("MedianSamples = %.3f" % np.median(total_samples))
 	print("Std.Samples = %.3f" % np.std(total_samples))
 	print("Max.Samples = %d" % max(total_samples))
-	print("TotalIters. = %d" % sum(total_iters))
-	print("MeanIters. = %.3f" % np.mean(total_iters))
-	print("MedianIters. = %.3f" % np.median(total_iters))
-	print("Std.Iters. = %.3f" % np.std(total_iters))
-	print("Max.Iters. = %d" % max(total_iters))
 	print("MeanProportion = %.4f" % np.mean(proportions))
 	print("MedianProportion = %.4f" % np.median(proportions))
 	print("Std.Proportion = %.4f" % np.std(proportions))
@@ -109,6 +118,23 @@ def run_experiment(ff_sdf_files, ff_energy_files, dft_energy_files, batch_size):
 	print("Std.Boltz.Dev. = %.4f" % np.std(boltz_devs))
 	print("Max.Boltz.Dev. = %.4f" % max(boltz_devs))
 
+def generate_experiments(params):
+	stack = list()
+	for i in reversed(range(len(params[0]))):
+		stack.append((0, i))
+	experiment = list()
+	while len(stack) > 0:
+		level, index = stack.pop()
+		while len(experiment) > level:
+			experiment.pop()
+		experiment.append(params[level][index])
+		if len(experiment) == len(params):
+			yield experiment
+			experiment.pop()
+		elif level < len(params) - 1:
+			for i in reversed(range(len(params[level+1]))):
+				stack.append((level + 1, i))
+
 
 if __name__ == "__main__":
 	if len(sys.argv) < 2:
@@ -119,6 +145,16 @@ if __name__ == "__main__":
 	if len(ff_sdf_files) == 0:
 		print("ERROR No valid files provided.")
 		exit(1)
-	for batch_size in (1, 2, 3, 5, 10):
-		run_experiment(ff_sdf_files, ff_energy_files, dft_energy_files,
-			batch_size)
+	features = (FeatureTreat.DISTS,)
+	init_samplers = (ForceFieldSampler,)
+	ff_treatments = (FFTreat.IGNORE,)
+	smoothing_params = (0.1, 0.5, 0.9)
+	min_thresholds = (0.1, 0.01, 0.001)
+	grad_thresholds = (0.001, 0.0001, 0.00001)
+	params = (features, init_samplers, ff_treatments, smoothing_params,
+		min_thresholds, grad_thresholds)
+	for experiment in generate_experiments(params):
+		SMOOTHING, MIN_THRESH, GRAD_THRESH = experiment[3:]
+		experiment = experiment[:3]
+		run_experiment(experiment, ff_sdf_files, ff_energy_files,
+			dft_energy_files)

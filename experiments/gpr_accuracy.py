@@ -1,16 +1,34 @@
+import os
 import sys
 import numpy as np
-from scipy.constants import R
+import matplotlib.pyplot as plt
 from file_utils import get_conformers_filenames, get_structures
 from acquisition_functions import ExpectedImprovement
 from bayesian_utils import (get_interatomic_features, check_convergence,
 setup_model_unsupervised_bandwidth, FFTreat)
 from initial_samplers import ForceFieldSampler
-from conversions import HARTREE_TO_KCAL, HARTREE_TO_JOULES
+from conversions import HARTREE_TO_KCAL
 
 INIT_SAMPLE_SIZE = 5
 SMOOTHING = 0.9
-TEMPERATURE = 298.15
+
+def get_model_accuracy(model, features, dft_energies, seen_indices,
+unseen_indices, acq_func):
+	train_features = features[seen_indices]
+	train_energies = dft_energies[seen_indices]
+	test_features = features[unseen_indices]
+	test_energies = dft_energies[unseen_indices]
+	train_preds = model.predict(train_features)
+	train_preds = train_preds * acq_func.y_std + acq_func.y_mean
+	test_preds = model.predict(test_features)
+	test_preds = test_preds * acq_func.y_std + acq_func.y_mean
+	train_error = np.mean(HARTREE_TO_KCAL \
+		* np.abs(train_preds - train_energies))
+	valid_mask = np.logical_not(np.isnan(test_energies))
+	test_energies = test_energies[valid_mask]
+	test_preds = test_preds[valid_mask]
+	test_error = np.mean(HARTREE_TO_KCAL * np.abs(test_preds - test_energies))
+	return train_error, test_error
 
 def run_optimisation(features, dft_energies, init_sampler):
 	model = setup_model_unsupervised_bandwidth(features)
@@ -18,8 +36,16 @@ def run_optimisation(features, dft_energies, init_sampler):
 	n_samples, seen_indices, unseen_indices = \
 		init_sampler.get_sample(dft_energies, INIT_SAMPLE_SIZE)
 	score_values = list()
+	data_sizes = list()
+	train_errors = list()
+	test_errors = list()
 	while len(unseen_indices) > 0:
 		acq_func.fit_model(model, features, dft_energies, seen_indices)
+		train_error, test_error = get_model_accuracy(model, features,
+			dft_energies, seen_indices, unseen_indices, acq_func)
+		data_sizes.append(features.shape[0] - len(unseen_indices))
+		train_errors.append(train_error)
+		test_errors.append(test_error)
 		acq_scores = acq_func.get_scores(model, features, unseen_indices)
 		score = float(np.mean(acq_scores))
 		if len(score_values) > 0:
@@ -38,24 +64,12 @@ def run_optimisation(features, dft_energies, init_sampler):
 	target_energy = np.nanmin(dft_energies)
 	min_energy = np.min(dft_energies[seen_indices])
 	min_energy = HARTREE_TO_KCAL * (min_energy - target_energy)
-	print("Min.Energy = %.5f" % min_energy)
-	all_energies = dft_energies[~np.isnan(dft_energies)]
-	sampled_energies = dft_energies[seen_indices]
-	all_energies -= np.min(all_energies)
-	sampled_energies -= np.min(sampled_energies)
-	all_factors = np.exp(-(HARTREE_TO_JOULES * all_energies) \
-		/ (R * TEMPERATURE))
-	sampled_factors = np.exp(-(HARTREE_TO_JOULES * sampled_energies) \
-		/ (R * TEMPERATURE))
-	all_energies *= HARTREE_TO_KCAL
-	sampled_energies *= HARTREE_TO_KCAL
-	all_boltz = np.sum(all_energies * all_factors) / np.sum(all_factors)
-	sampled_boltz = np.sum(sampled_energies * sampled_factors) \
-		/ np.sum(sampled_factors)
-	boltz_dev = np.abs(all_boltz - sampled_boltz)
-	print("Boltz.Dev. = %.5f" % boltz_dev)
+	print("MinEnergy = %.5f" % min_energy)
+	return data_sizes, train_errors, test_errors
 
 def run_experiment(ff_sdf_files, ff_energy_files, dft_energy_files):
+	i = 0
+	name_map = {"BPA_TS": "BPA", "NTOB_DA": "NTOB", "adsbimp": "BIMP"}
 	for ff_sdf_file, ff_energy_file, dft_energy_file in zip(ff_sdf_files,
 	ff_energy_files, dft_energy_files):
 		print("# %s" % ff_sdf_file.replace(".sdf", ""))
@@ -64,7 +78,19 @@ def run_experiment(ff_sdf_files, ff_energy_files, dft_energy_files):
 		structures = get_structures(ff_sdf_file, ff_energies)
 		features = get_interatomic_features(structures, None, FFTreat.IGNORE)
 		init_sampler = ForceFieldSampler(ff_energies)
-		run_optimisation(features, dft_energies, init_sampler)
+		data_sizes, train_errors, test_errors = run_optimisation(features,
+			dft_energies, init_sampler)
+		label = os.path.basename(ff_sdf_file).replace(".sdf", "")
+		if name_map.get(label):
+			label = name_map[label]
+		plt.plot(data_sizes, train_errors, "o-", color="C" + str(i))
+		plt.plot(data_sizes, test_errors, "x-", color="C" + str(i), label=label)
+		i += 1
+	plt.legend()
+	plt.title("GPR Accuracy As Data Collected", fontsize=14)
+	plt.xlabel("Number of Conformers Optimized", fontsize=14)
+	plt.ylabel("GPR MAE / kcal/mol", fontsize=14)
+	plt.show()
 
 
 if __name__ == "__main__":

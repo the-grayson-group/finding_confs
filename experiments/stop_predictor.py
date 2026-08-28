@@ -109,8 +109,8 @@ test_min_energies, confidence=0.9):
 			stop_index = stop_indices[0]
 			stop_window = np.arange(stop_index, stop_index + n_points,
 				dtype=int)
-			while not np.all(predictions[stop_window] >= confidence) and \
-			stop_window[n_points-1] < predictions.shape[0]:
+			while not np.all(predictions[stop_window] >= confidence) \
+			and stop_window[n_points-1] < predictions.shape[0]:
 				stop_window += 1
 			stop_index = stop_window[n_points-1]
 		else:

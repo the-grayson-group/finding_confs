@@ -25,7 +25,7 @@ The stop predictor probability threshold for these experiments can be changed wi
 
 
 ## Bayesian Optimization Experiments
-The scripts that are relevant to the Bayesian optimization experiments are `benchmark_bayesian.py`, `test_bayesian.py`, `benchmark_batching.py`, `test_batching.py` and `test_selectivity.py`.
+The scripts that are relevant to the Bayesian optimization experiments are `benchmark_bayesian.py`, `benchmark_stop_params.py`, `plot_selected.py`, `test_bayesian.py`, `gpr_accuracy.py`, `benchmark_batching.py`, `test_batching.py` and `test_selectivity.py`.
 
 To perform the experiments in which the Bayesian optimization settings (features, initial sample method and inclusion/exclusion of low level energy feature) are tested on the data set of force field-searched "tuning" molecules and CREST-searched molecules, run the following:
 ```
@@ -33,10 +33,25 @@ python benchmark_bayesian.py PATH_TO_FOLDER/molecules/
 python benchmark_bayesian.py PATH_TO_FOLDER/crest_molecules/
 ```
 
+To perform the experiments in which different values for the the Bayesian optimization convergence criteria (smoothing parameter, score and gradient thresholds) are tested on the force field-search "tuning" molecules, run the following:
+```
+python benchmark_stop_params.py PATH_TO_FOLDER/molecules/
+```
+
+To run the test that highlights which conformers were selected by the algorithm with a t-SNE representation, run the following (for the mikami data set specifically, as in the paper):
+```
+python plot_selected.py PATH_TO_FOLDER/molecules/mikami.sdf
+```
+
 To perform the experiments in which Bayesian optimization is tested on the "unseen" transition state data sets, using the force field energies, then single-point DFT energies as the low level of theory, run the following:
 ```
 python test_bayesian.py PATH_TO_FOLDER/transition_states/
 python test_bayesian.py PATH_TO_FOLDER/single_points/
+```
+
+To run the test that plots the GPR model's energy prediction errors as sampling proceeds for the transition state data sets, run the following:
+```
+python gpr_accuracy.py PATH_TO_FOLDER/transition_states/
 ```
 
 To perform the experiments in which different batch sizes are used with Bayesian optimization on the tuning molecules, run the following:
