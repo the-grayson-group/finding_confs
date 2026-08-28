@@ -12,7 +12,9 @@ process_dihedral_angles)
 from conversions import HARTREE_TO_KCAL, HARTREE_TO_JOULES
 
 INIT_SAMPLE_SIZE = 5
-SMOOTHING = 0.9
+SMOOTHING = 0.5
+MIN_THRESH = 0.01
+GRAD_THRESH = 0.0001
 TEMPERATURE = 298.15
 
 def run_optimisation(features, dft_energies, init_sampler):
@@ -31,7 +33,7 @@ def run_optimisation(features, dft_energies, init_sampler):
 		else:
 			new_score = score
 		score_values.append(new_score)
-		if check_convergence(score_values):
+		if check_convergence(score_values, MIN_THRESH, GRAD_THRESH):
 			break
 		acq_func.process_sample(acq_scores, dft_energies, seen_indices,
 			unseen_indices)
