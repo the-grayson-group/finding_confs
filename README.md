@@ -1,5 +1,5 @@
 # finding_confs
-Source code for the paper "Alleviating the Conformational Bottleneck in Mechanistic Modeling with Bayesian Optimization".
+Source code for the paper "Bayesian Optimization Alleviates the Conformational Bottleneck in Mechanistic Modeling".
 
 ## Software Environment
 This code was developed and tested using Python 3.12.4 and GCC 11.4.0 on x86_64 Ubuntu Linux 22.04 running on a workstation with an Intel Xeon Silver 4314 CPU. The specific versions of the Python libraries used (importantly, scikit-learn, numpy, scipy, rdkit) may be found in `requirements.txt`.
